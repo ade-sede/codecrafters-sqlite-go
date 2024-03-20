@@ -98,7 +98,7 @@ func (d *Database) Close() error {
 }
 
 // First page is `pageNumber` 0.
-func (d *Database) getPage(pageNumber uint) (*Page, error) {
+func (d *Database) getPage(pageNumber int) (*Page, error) {
 	page := Page{
 		file:                  d.file,
 		pageSize:              d.PageSize,
@@ -113,7 +113,7 @@ func (d *Database) getPage(pageNumber uint) (*Page, error) {
 	var headerOffset uint
 
 	header = make([]byte, 12)
-	page.pageStart = pageNumber * uint(d.PageSize)
+	page.pageStart = uint(pageNumber) * uint(d.PageSize)
 	headerOffset = 0
 
 	if pageNumber == 0 {
@@ -153,8 +153,8 @@ func (d *Database) getPage(pageNumber uint) (*Page, error) {
 	page.cellPointerOffset = uint(headerOffset) + 8
 
 	// TODO: support interior pages
-	// if page.Type == INTERIOR_INDEX || page.Type == INTERIOR_TABLE {
-	// page.cellPointerOffset += 4
+	// if page.Type == INTERIOR_INDEX || page.Type == INTERIOR_TABLE
+	//   page.cellPointerOffset += 4
 
 	return &page, nil
 }
@@ -248,7 +248,7 @@ func decodePayload(header []byte, payload []byte) ([]*Record, error) {
 
 		header = header[n:]
 
-		if SerialType(serialType) == 1 {
+		if SerialType(serialType) == INT8 {
 			field := payload[0:]
 			payload = payload[1:]
 

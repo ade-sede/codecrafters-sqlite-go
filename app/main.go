@@ -2,15 +2,14 @@ package main
 
 import (
 	"fmt"
+	"github.com/xwb1989/sqlparser"
 	"log"
 	"os"
 	"sort"
 	"strings"
-	// Available if you need it!
-	// "github.com/xwb1989/sqlparser"
 )
 
-func schema_table_records(database *Database) ([][]*Record, error) {
+func getSchemaTableRecords(database *Database) ([][]*Record, error) {
 	rootPage, err := database.getPage(0)
 
 	if err != nil {
@@ -45,6 +44,8 @@ func main() {
 
 	database, err := NewDBHandler(databaseFilePath)
 
+	allSchemaRecords, err := getSchemaTableRecords(database)
+
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -55,8 +56,6 @@ func main() {
 	case ".dbinfo":
 		fmt.Printf("database page size: %v\n", database.PageSize)
 
-		allSchemaRecords, err := schema_table_records(database)
-
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -64,19 +63,17 @@ func main() {
 		tableNames := make([]string, 0)
 
 		for _, records := range allSchemaRecords {
-			t := string(records[0].payload)
-			v := string(records[2].payload)
+			schemaType := string(records[0].payload)
+			schemaName := string(records[2].payload)
 
-			if t == "table" && !strings.HasPrefix(v, "sqlite") {
-				tableNames = append(tableNames, v)
+			if schemaType == "table" && !strings.HasPrefix(schemaName, "sqlite") {
+				tableNames = append(tableNames, schemaName)
 			}
 		}
 
 		fmt.Printf("number of tables: %v\n", len(tableNames))
 
 	case ".tables":
-		allSchemaRecords, err := schema_table_records(database)
-
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -84,11 +81,11 @@ func main() {
 		tableNames := make([]string, 0)
 
 		for _, records := range allSchemaRecords {
-			t := string(records[0].payload)
-			v := string(records[2].payload)
+			schemaType := string(records[0].payload)
+			schemaName := string(records[2].payload)
 
-			if t == "table" && !strings.HasPrefix(v, "sqlite") {
-				tableNames = append(tableNames, v)
+			if schemaType == "table" && !strings.HasPrefix(schemaName, "sqlite") {
+				tableNames = append(tableNames, schemaName)
 			}
 		}
 
