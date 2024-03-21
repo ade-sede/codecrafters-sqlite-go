@@ -21,6 +21,7 @@ const (
 type SerialType int64
 
 const (
+	NULL               SerialType = 0x00
 	INT8               SerialType = 0x01
 	BIG_ENDIAN_INT16   SerialType = 0x02
 	BIG_ENDIAN_INT24   SerialType = 0x03
@@ -251,6 +252,13 @@ func decodePayload(header []byte, payload []byte) ([]*Record, error) {
 		if SerialType(serialType) == INT8 {
 			field := payload[0:]
 			payload = payload[1:]
+
+			records = append(records, &Record{
+				payload:    field,
+				serialType: SerialType(serialType),
+			})
+		} else if SerialType(serialType) == NULL {
+			field := payload[0:]
 
 			records = append(records, &Record{
 				payload:    field,
