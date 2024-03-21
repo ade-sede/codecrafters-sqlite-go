@@ -150,6 +150,9 @@ func selectExpr(database *Database, allSchemaRecords [][]*Record, stmt *sqlparse
 		log.Fatal(err)
 	}
 
+	data := make([]string, 0)
+
+	// TODO: refactor to get all column values at once
 	for _, selectExpr := range stmt.SelectExprs {
 		switch selectExpr := selectExpr.(type) {
 		case *sqlparser.StarExpr:
@@ -161,12 +164,18 @@ func selectExpr(database *Database, allSchemaRecords [][]*Record, stmt *sqlparse
 				log.Fatal(err)
 			}
 
-			fmt.Println(strings.Join(columnValues, "\n"))
+			for index, value := range columnValues {
+				if index < len(data) {
+					data[index] = strings.Join([]string{data[index], value}, "|")
+				} else {
+					data = append(data, value)
+				}
+			}
 		default:
 			fmt.Println("Neither StarExpr nor AliasedExpr")
 		}
 	}
-
+	fmt.Println(strings.Join(data, "\n"))
 }
 
 // Usage: your_sqlite3.sh sample.db .dbinfo
