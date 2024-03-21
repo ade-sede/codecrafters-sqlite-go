@@ -1,12 +1,14 @@
 package main
 
 import (
+	"errors"
 	"fmt"
-	"github.com/xwb1989/sqlparser"
 	"log"
 	"os"
 	"sort"
 	"strings"
+
+	"github.com/xwb1989/sqlparser"
 )
 
 func getSchemaTableRecords(database *Database) ([][]*Record, error) {
@@ -35,6 +37,96 @@ func getSchemaTableRecords(database *Database) ([][]*Record, error) {
 	}
 
 	return allSchemaRecords, nil
+}
+
+func aliasedSelectExpr(allSchemaRecords [][]*Record, allTablePageRecords [][]*Record, selectExpr *sqlparser.AliasedExpr) ([]string, error) {
+
+	data := make([]string, 0)
+
+	if funcExpr, ok := selectExpr.Expr.(*sqlparser.FuncExpr); ok {
+		funcName := funcExpr.Name.String()
+
+		if strings.ToUpper(funcName) == "COUNT" {
+			if _, ok := funcExpr.Exprs[0].(*sqlparser.StarExpr); ok {
+				data = append(data, fmt.Sprintf("%v", len(allTablePageRecords)))
+
+				return data, nil
+			}
+		} else {
+			return nil, errors.New("Unsupported function")
+		}
+	}
+
+	return nil, errors.New("Unsupported select expression")
+}
+
+func getTableData(database *Database, tableRootPageNumber int) ([][]*Record, error) {
+	tableRootPage, err := database.getPage(tableRootPageNumber - 1)
+
+	if err != nil {
+		return nil, err
+	}
+
+	tableCells, err := tableRootPage.cells()
+
+	if err != nil {
+		return nil, err
+	}
+
+	allTablePageRecords := make([][]*Record, 0)
+
+	for _, cell := range tableCells {
+		records, err := decodePayload(cell.payloadHeader, cell.payloadBody)
+
+		if err != nil {
+			return nil, err
+		}
+
+		allTablePageRecords = append(allTablePageRecords, records)
+	}
+
+	return allTablePageRecords, nil
+}
+
+func selectExpr(database *Database, allSchemaRecords [][]*Record, stmt *sqlparser.Select) {
+	fromExpr := sqlparser.GetTableName(stmt.From[0].(*sqlparser.AliasedTableExpr).Expr.(sqlparser.TableName))
+
+	if fromExpr.IsEmpty() {
+		log.Fatal("No from table specified in select query")
+	}
+
+	tableName := fromExpr.String()
+	var tableRootPageNumber int
+
+	for _, records := range allSchemaRecords {
+		if string(records[2].payload) == tableName {
+			tableRootPageNumber = int(records[3].payload[0])
+		}
+	}
+
+	allTablePageRecords, err := getTableData(database, tableRootPageNumber)
+
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	for _, selectExpr := range stmt.SelectExprs {
+		switch selectExpr := selectExpr.(type) {
+		case *sqlparser.StarExpr:
+			fmt.Println("StarExpr")
+		case *sqlparser.AliasedExpr:
+			columnValues, err := aliasedSelectExpr(allSchemaRecords, allTablePageRecords, selectExpr)
+
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			fmt.Println(strings.Join(columnValues, "\n"))
+		default:
+			fmt.Println("Neither StarExpr nor AliasedExpr")
+		}
+	}
+
 }
 
 // Usage: your_sqlite3.sh sample.db .dbinfo
@@ -108,66 +200,7 @@ func main() {
 
 		switch stmt := stmt.(type) {
 		case *sqlparser.Select:
-			fromExpr := sqlparser.GetTableName(stmt.From[0].(*sqlparser.AliasedTableExpr).Expr.(sqlparser.TableName))
-
-			if fromExpr.IsEmpty() {
-				log.Fatal("No from table specified in select query")
-			}
-
-			tableName := fromExpr.String()
-			var tableRootPageNumber int
-
-			for _, records := range allSchemaRecords {
-				if string(records[2].payload) == tableName {
-					tableRootPageNumber = int(records[3].payload[0])
-				}
-			}
-
-			tableRootPage, err := database.getPage(tableRootPageNumber - 1)
-
-			if err != nil {
-				log.Fatal(err)
-			}
-
-			tableCells, err := tableRootPage.cells()
-
-			if err != nil {
-				log.Fatal(err)
-			}
-
-			allTablePageRecords := make([][]*Record, 0)
-
-			for _, cell := range tableCells {
-				records, err := decodePayload(cell.payloadHeader, cell.payloadBody)
-
-				if err != nil {
-					log.Fatal(err)
-				}
-
-				allTablePageRecords = append(allTablePageRecords, records)
-			}
-
-			for _, selectExpr := range stmt.SelectExprs {
-				switch selectExpr := selectExpr.(type) {
-				case *sqlparser.StarExpr:
-					fmt.Println("StarExpr")
-				case *sqlparser.AliasedExpr:
-					if funcExpr, ok := selectExpr.Expr.(*sqlparser.FuncExpr); ok {
-						funcName := funcExpr.Name.String()
-
-						if strings.ToUpper(funcName) == "COUNT" {
-							if _, ok := funcExpr.Exprs[0].(*sqlparser.StarExpr); ok {
-								fmt.Println(len(allTablePageRecords))
-							}
-						} else {
-							fmt.Println("Unsupported function", funcName)
-						}
-					}
-				default:
-					fmt.Println("Neither StarExpr nor AliasedExpr")
-				}
-			}
-
+			selectExpr(database, allSchemaRecords, stmt)
 		default:
 			fmt.Println("Unsupported query", sqlQuery)
 			os.Exit(1)
