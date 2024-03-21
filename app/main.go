@@ -39,21 +39,61 @@ func getSchemaTableRecords(database *Database) ([][]*Record, error) {
 	return allSchemaRecords, nil
 }
 
-func aliasedSelectExpr(allSchemaRecords [][]*Record, allTablePageRecords [][]*Record, selectExpr *sqlparser.AliasedExpr) ([]string, error) {
-
+func aliasedSelectExpr(allSchemaRecords [][]*Record, allTablePageRecords [][]*Record, selectExpr *sqlparser.AliasedExpr, tableName string) ([]string, error) {
 	data := make([]string, 0)
 
-	if funcExpr, ok := selectExpr.Expr.(*sqlparser.FuncExpr); ok {
-		funcName := funcExpr.Name.String()
+	switch expr := selectExpr.Expr.(type) {
+	case *sqlparser.FuncExpr:
+		funcName := expr.Name.String()
 
-		if strings.ToUpper(funcName) == "COUNT" {
-			if _, ok := funcExpr.Exprs[0].(*sqlparser.StarExpr); ok {
-				data = append(data, fmt.Sprintf("%v", len(allTablePageRecords)))
-
-				return data, nil
-			}
-		} else {
+		if strings.ToUpper(funcName) != "COUNT" {
 			return nil, errors.New("Unsupported function")
+		}
+
+		if _, ok := expr.Exprs[0].(*sqlparser.StarExpr); ok {
+			data = append(data, fmt.Sprintf("%v", len(allTablePageRecords)))
+
+			return data, nil
+		}
+	case *sqlparser.ColName:
+		columnName := expr.Name.String()
+		var tableSchema string
+
+		for _, records := range allSchemaRecords {
+			if string(records[2].payload) == tableName {
+				tableSchema = string(records[4].payload)
+			}
+		}
+
+		tableSchema = strings.ReplaceAll(tableSchema, "autoincrement", "")
+		createStmt, err := sqlparser.Parse(tableSchema)
+
+		if err != nil {
+			return nil, err
+		}
+
+		indexOfColumnToRead := -1
+
+		switch createStmt := createStmt.(type) {
+		case *sqlparser.DDL:
+			for index, columnDef := range createStmt.TableSpec.Columns {
+				if columnDef.Name.String() == columnName {
+					indexOfColumnToRead = index
+					break
+				}
+			}
+
+			if indexOfColumnToRead == -1 {
+				return nil, errors.New("Column not found")
+			}
+
+			for _, records := range allTablePageRecords {
+				data = append(data, string(records[indexOfColumnToRead].payload))
+			}
+
+			return data, nil
+		default:
+			return nil, errors.New("Malformed create statement")
 		}
 	}
 
@@ -115,7 +155,7 @@ func selectExpr(database *Database, allSchemaRecords [][]*Record, stmt *sqlparse
 		case *sqlparser.StarExpr:
 			fmt.Println("StarExpr")
 		case *sqlparser.AliasedExpr:
-			columnValues, err := aliasedSelectExpr(allSchemaRecords, allTablePageRecords, selectExpr)
+			columnValues, err := aliasedSelectExpr(allSchemaRecords, allTablePageRecords, selectExpr, tableName)
 
 			if err != nil {
 				log.Fatal(err)
