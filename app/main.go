@@ -3,12 +3,11 @@ package main
 import (
 	"errors"
 	"fmt"
+	"github.com/xwb1989/sqlparser"
 	"log"
 	"os"
 	"sort"
 	"strings"
-
-	"github.com/xwb1989/sqlparser"
 )
 
 func getSchemaTableRecords(database *Database) ([][]*Record, error) {
@@ -39,6 +38,44 @@ func getSchemaTableRecords(database *Database) ([][]*Record, error) {
 	return allSchemaRecords, nil
 }
 
+func indexOfColumnToRead(allSchemaRecords [][]*Record, tableName string, columnName string) (int, error) {
+	var tableSchema string
+
+	for _, records := range allSchemaRecords {
+		if string(records[2].payload) == tableName {
+			tableSchema = string(records[4].payload)
+		}
+	}
+
+	tableSchema = strings.ReplaceAll(tableSchema, "autoincrement", "")
+	createStmt, err := sqlparser.Parse(tableSchema)
+
+	if err != nil {
+		return -1, err
+	}
+
+	indexOfColumnToRead := -1
+
+	switch createStmt := createStmt.(type) {
+	case *sqlparser.DDL:
+		for index, columnDef := range createStmt.TableSpec.Columns {
+			if columnDef.Name.String() == columnName {
+				indexOfColumnToRead = index
+				break
+			}
+		}
+
+		if indexOfColumnToRead == -1 {
+			return -1, errors.New("Column not found")
+		}
+
+		return indexOfColumnToRead, nil
+	default:
+		return -1, errors.New("Malformed create statement")
+	}
+
+}
+
 func aliasedSelectExpr(allSchemaRecords [][]*Record, allTablePageRecords [][]*Record, selectExpr *sqlparser.AliasedExpr, tableName string) ([]string, error) {
 	data := make([]string, 0)
 
@@ -57,44 +94,18 @@ func aliasedSelectExpr(allSchemaRecords [][]*Record, allTablePageRecords [][]*Re
 		}
 	case *sqlparser.ColName:
 		columnName := expr.Name.String()
-		var tableSchema string
 
-		for _, records := range allSchemaRecords {
-			if string(records[2].payload) == tableName {
-				tableSchema = string(records[4].payload)
-			}
-		}
-
-		tableSchema = strings.ReplaceAll(tableSchema, "autoincrement", "")
-		createStmt, err := sqlparser.Parse(tableSchema)
+		indexOfColumnToRead, err := indexOfColumnToRead(allSchemaRecords, tableName, columnName)
 
 		if err != nil {
 			return nil, err
 		}
 
-		indexOfColumnToRead := -1
-
-		switch createStmt := createStmt.(type) {
-		case *sqlparser.DDL:
-			for index, columnDef := range createStmt.TableSpec.Columns {
-				if columnDef.Name.String() == columnName {
-					indexOfColumnToRead = index
-					break
-				}
-			}
-
-			if indexOfColumnToRead == -1 {
-				return nil, errors.New("Column not found")
-			}
-
-			for _, records := range allTablePageRecords {
-				data = append(data, string(records[indexOfColumnToRead].payload))
-			}
-
-			return data, nil
-		default:
-			return nil, errors.New("Malformed create statement")
+		for _, records := range allTablePageRecords {
+			data = append(data, string(records[indexOfColumnToRead].payload))
 		}
+
+		return data, nil
 	}
 
 	return nil, errors.New("Unsupported select expression")
@@ -151,6 +162,39 @@ func selectExpr(database *Database, allSchemaRecords [][]*Record, stmt *sqlparse
 	}
 
 	data := make([]string, 0)
+
+	// TODO
+	// AND, OR expressions
+	// extract function ?
+	if stmt.Where != nil {
+		// TODO currying ?
+		switch e := stmt.Where.Expr.(type) {
+		case *sqlparser.ComparisonExpr:
+			colName := sqlparser.String(e.Left)
+			indexOfColumnToRead, err := indexOfColumnToRead(allSchemaRecords, tableName, colName)
+
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			recordsToKeep := make([][]*Record, 0)
+
+			// TODO switch ?
+			if e.Operator == "=" {
+				rightValue := strings.ReplaceAll(sqlparser.String(e.Right), "'", "")
+				for index, record := range allTablePageRecords {
+					if string(record[indexOfColumnToRead].payload) == rightValue {
+						recordsToKeep = append(recordsToKeep, allTablePageRecords[index])
+					}
+				}
+			}
+
+			allTablePageRecords = recordsToKeep
+
+		default:
+			log.Fatal(errors.New("Unsupported where expr"))
+		}
+	}
 
 	// TODO: refactor to get all column values at once
 	for _, selectExpr := range stmt.SelectExprs {
