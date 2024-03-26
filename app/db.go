@@ -36,6 +36,7 @@ const (
 )
 
 type Record struct {
+	rowId      int64
 	payload    []byte
 	serialType SerialType
 }
@@ -278,7 +279,7 @@ func (p *Page) cells() ([]*Cell, error) {
 	return nil, fmt.Errorf("Unsupported page type: %v", p.Type)
 }
 
-func decodePayload(header []byte, payload []byte) ([]*Record, error) {
+func decodePayload(header []byte, payload []byte, rowId int64) ([]*Record, error) {
 	_, n := readBigEndianVarint(header)
 
 	if n <= 0 {
@@ -307,6 +308,7 @@ func decodePayload(header []byte, payload []byte) ([]*Record, error) {
 			payload = payload[1:]
 
 			records = append(records, &Record{
+				rowId:      rowId,
 				payload:    field,
 				serialType: SerialType(serialType),
 			})
@@ -315,6 +317,7 @@ func decodePayload(header []byte, payload []byte) ([]*Record, error) {
 			payload = payload[2:]
 
 			records = append(records, &Record{
+				rowId:      rowId,
 				payload:    field,
 				serialType: SerialType(serialType),
 			})
@@ -322,6 +325,7 @@ func decodePayload(header []byte, payload []byte) ([]*Record, error) {
 			field := payload[0:]
 
 			records = append(records, &Record{
+				rowId:      rowId,
 				payload:    field,
 				serialType: SerialType(serialType),
 			})
@@ -329,6 +333,7 @@ func decodePayload(header []byte, payload []byte) ([]*Record, error) {
 			field := payload[0:]
 
 			records = append(records, &Record{
+				rowId:      rowId,
 				payload:    field,
 				serialType: SerialType(serialType),
 			})
@@ -338,6 +343,7 @@ func decodePayload(header []byte, payload []byte) ([]*Record, error) {
 			payload = payload[fieldLen:]
 
 			records = append(records, &Record{
+				rowId:      rowId,
 				payload:    field,
 				serialType: SerialType(serialType),
 			})

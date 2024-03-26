@@ -26,7 +26,7 @@ func getSchemaTableRecords(database *Database) ([][]*Record, error) {
 	allSchemaRecords := make([][]*Record, 0)
 
 	for _, cell := range cells {
-		records, err := decodePayload(cell.payloadHeader, cell.payloadBody)
+		records, err := decodePayload(cell.payloadHeader, cell.payloadBody, cell.rowId)
 
 		if err != nil {
 			return nil, err
@@ -102,7 +102,12 @@ func aliasedSelectExpr(allSchemaRecords [][]*Record, allTablePageRecords [][]*Re
 		}
 
 		for _, records := range allTablePageRecords {
-			data = append(data, string(records[indexOfColumnToRead].payload))
+			record := records[indexOfColumnToRead]
+			if record.serialType >= 13 && record.serialType&0b1 == 1 {
+				data = append(data, string(record.payload))
+			} else if record.serialType == NULL {
+				data = append(data, fmt.Sprintf("%v", record.rowId))
+			}
 		}
 
 		return data, nil
@@ -139,7 +144,7 @@ func getTableData(database *Database, tableRootPageNumber int) ([][]*Record, err
 		}
 	} else {
 		for _, cell := range tableCells {
-			records, err := decodePayload(cell.payloadHeader, cell.payloadBody)
+			records, err := decodePayload(cell.payloadHeader, cell.payloadBody, cell.rowId)
 
 			if err != nil {
 				return nil, err
