@@ -41,11 +41,12 @@ type Record struct {
 }
 
 type Cell struct {
-	Type          TableType
-	rowId         int64
-	payloadSize   int64
-	payloadHeader []byte
-	payloadBody   []byte
+	Type              TableType
+	rowId             int64
+	payloadSize       int64
+	payloadHeader     []byte
+	payloadBody       []byte
+	pointerToLeafPage uint32
 }
 
 type Page struct {
@@ -56,6 +57,7 @@ type Page struct {
 	cellPointerOffset     uint
 	cellCount             uint16
 	cellContentAreaOffset uint16
+	rightMostPointer      uint32
 }
 
 type Database struct {
@@ -108,6 +110,7 @@ func (d *Database) getPage(pageNumber int) (*Page, error) {
 		cellPointerOffset:     0,
 		cellCount:             0,
 		cellContentAreaOffset: 0,
+		rightMostPointer:      0,
 	}
 
 	var header []byte
@@ -135,7 +138,7 @@ func (d *Database) getPage(pageNumber int) (*Page, error) {
 
 	page.Type = TableType(header[0])
 
-	if page.Type != LEAF_TABLE {
+	if page.Type != LEAF_TABLE && page.Type != INTERIOR_TABLE {
 		return nil, fmt.Errorf("Unsupported page type: %v", page.Type)
 	}
 
@@ -153,32 +156,20 @@ func (d *Database) getPage(pageNumber int) (*Page, error) {
 
 	page.cellPointerOffset = uint(headerOffset) + 8
 
-	// TODO: support interior pages
-	// if page.Type == INTERIOR_INDEX || page.Type == INTERIOR_TABLE
-	//   page.cellPointerOffset += 4
+	if page.Type == INTERIOR_TABLE {
+		err = binary.Read(bytes.NewReader(header[8:12]), binary.BigEndian, &page.rightMostPointer)
+
+		if err != nil {
+			return nil, err
+		}
+
+		page.cellPointerOffset += 4
+	}
 
 	return &page, nil
 }
 
-func (p *Page) cells() ([]*Cell, error) {
-	// TODO: take reserved empty bytes into account
-	startOfCellContent := p.pageStart + uint(p.cellContentAreaOffset)
-	endOfPage := p.pageStart + uint(p.pageSize)
-
-	cellContents := make([]byte, endOfPage-uint(startOfCellContent))
-
-	_, err := p.file.Seek(int64(startOfCellContent), io.SeekStart)
-
-	if err != nil {
-		return nil, err
-	}
-
-	_, err = p.file.Read(cellContents)
-
-	if err != nil {
-		return nil, err
-	}
-
+func leafTableCells(p *Page, cellContents []byte) ([]*Cell, error) {
 	cells := make([]*Cell, p.cellCount)
 
 	for i := 0; i < int(p.cellCount); i++ {
@@ -225,6 +216,68 @@ func (p *Page) cells() ([]*Cell, error) {
 	return cells, nil
 }
 
+func interiorTableCells(p *Page, cellContents []byte) ([]*Cell, error) {
+	cells := make([]*Cell, p.cellCount)
+
+	for i := 0; i < int(p.cellCount); i++ {
+		var pageNumber uint32
+
+		err := binary.Read(bytes.NewReader(cellContents), binary.BigEndian, &pageNumber)
+
+		if err != nil {
+			return nil, err
+		}
+
+		cellContents = cellContents[4:]
+
+		rowId, n := readBigEndianVarint(cellContents)
+
+		if n <= 0 {
+			return nil, errors.New("Error while reading varint, n <= 0")
+		}
+
+		cellContents = cellContents[n:]
+
+		cell := Cell{
+			Type:              p.Type,
+			rowId:             rowId,
+			pointerToLeafPage: pageNumber,
+		}
+
+		cells[i] = &cell
+	}
+
+	return cells, nil
+}
+
+func (p *Page) cells() ([]*Cell, error) {
+	// TODO: take reserved empty bytes into account
+	startOfCellContent := p.pageStart + uint(p.cellContentAreaOffset)
+	endOfPage := p.pageStart + uint(p.pageSize)
+
+	cellContents := make([]byte, endOfPage-uint(startOfCellContent))
+
+	_, err := p.file.Seek(int64(startOfCellContent), io.SeekStart)
+
+	if err != nil {
+		return nil, err
+	}
+
+	_, err = p.file.Read(cellContents)
+
+	if err != nil {
+		return nil, err
+	}
+
+	if p.Type == LEAF_TABLE {
+		return leafTableCells(p, cellContents)
+	} else if p.Type == INTERIOR_TABLE {
+		return interiorTableCells(p, cellContents)
+	}
+
+	return nil, fmt.Errorf("Unsupported page type: %v", p.Type)
+}
+
 func decodePayload(header []byte, payload []byte) ([]*Record, error) {
 	_, n := readBigEndianVarint(header)
 
@@ -257,7 +310,22 @@ func decodePayload(header []byte, payload []byte) ([]*Record, error) {
 				payload:    field,
 				serialType: SerialType(serialType),
 			})
+		} else if SerialType(serialType) == BIG_ENDIAN_INT16 {
+			field := payload[0:2]
+			payload = payload[2:]
+
+			records = append(records, &Record{
+				payload:    field,
+				serialType: SerialType(serialType),
+			})
 		} else if SerialType(serialType) == NULL {
+			field := payload[0:]
+
+			records = append(records, &Record{
+				payload:    field,
+				serialType: SerialType(serialType),
+			})
+		} else if SerialType(serialType) == VALUE_1 {
 			field := payload[0:]
 
 			records = append(records, &Record{

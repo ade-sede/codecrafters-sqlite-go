@@ -48,8 +48,9 @@ func indexOfColumnToRead(allSchemaRecords [][]*Record, tableName string, columnN
 	}
 
 	tableSchema = strings.ReplaceAll(tableSchema, "autoincrement", "")
-	createStmt, err := sqlparser.Parse(tableSchema)
+	tableSchema = strings.ReplaceAll(tableSchema, "\"", "")
 
+	createStmt, err := sqlparser.Parse(tableSchema)
 	if err != nil {
 		return -1, err
 	}
@@ -73,7 +74,6 @@ func indexOfColumnToRead(allSchemaRecords [][]*Record, tableName string, columnN
 	default:
 		return -1, errors.New("Malformed create statement")
 	}
-
 }
 
 func aliasedSelectExpr(allSchemaRecords [][]*Record, allTablePageRecords [][]*Record, selectExpr *sqlparser.AliasedExpr, tableName string) ([]string, error) {
@@ -114,6 +114,8 @@ func aliasedSelectExpr(allSchemaRecords [][]*Record, allTablePageRecords [][]*Re
 func getTableData(database *Database, tableRootPageNumber int) ([][]*Record, error) {
 	tableRootPage, err := database.getPage(tableRootPageNumber - 1)
 
+	allTablePageRecords := make([][]*Record, 0)
+
 	if err != nil {
 		return nil, err
 	}
@@ -124,16 +126,27 @@ func getTableData(database *Database, tableRootPageNumber int) ([][]*Record, err
 		return nil, err
 	}
 
-	allTablePageRecords := make([][]*Record, 0)
+	if tableRootPage.Type == INTERIOR_TABLE {
+		for _, cell := range tableCells {
+			leafPageNumber := cell.pointerToLeafPage
+			allRecordsFromLeafPage, err := getTableData(database, int(leafPageNumber))
 
-	for _, cell := range tableCells {
-		records, err := decodePayload(cell.payloadHeader, cell.payloadBody)
+			if err != nil {
+				return nil, err
+			}
 
-		if err != nil {
-			return nil, err
+			allTablePageRecords = append(allTablePageRecords, allRecordsFromLeafPage...)
 		}
+	} else {
+		for _, cell := range tableCells {
+			records, err := decodePayload(cell.payloadHeader, cell.payloadBody)
 
-		allTablePageRecords = append(allTablePageRecords, records)
+			if err != nil {
+				return nil, err
+			}
+
+			allTablePageRecords = append(allTablePageRecords, records)
+		}
 	}
 
 	return allTablePageRecords, nil
@@ -224,6 +237,8 @@ func selectExpr(database *Database, allSchemaRecords [][]*Record, stmt *sqlparse
 
 // Usage: your_sqlite3.sh sample.db .dbinfo
 func main() {
+	log.SetFlags(log.LstdFlags | log.Lshortfile)
+
 	databaseFilePath := os.Args[1]
 	command := os.Args[2]
 
