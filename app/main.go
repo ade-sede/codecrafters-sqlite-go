@@ -315,10 +315,7 @@ func main() {
 		case *sqlparser.Select:
 			selectExpr(database, allSchemaRecords, stmt)
 		default:
-			fmt.Println("Unsupported query", sqlQuery)
-			os.Exit(1)
+			log.Fatal("Unsupported query", sqlQuery)
 		}
-
-		os.Exit(0)
 	}
 }
