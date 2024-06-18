@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -177,7 +176,7 @@ func leafTableCells(p *Page, cellContents []byte) ([]*Cell, error) {
 		payloadSize, n := readBigEndianVarint(cellContents)
 
 		if n <= 0 {
-			return nil, errors.New("Error while reading varint, n <= 0")
+			return nil, fmt.Errorf("Error while reading varint, n <= 0")
 		}
 
 		cellContents = cellContents[n:]
@@ -185,7 +184,7 @@ func leafTableCells(p *Page, cellContents []byte) ([]*Cell, error) {
 		rowId, n := readBigEndianVarint(cellContents)
 
 		if n <= 0 {
-			return nil, errors.New("Error while reading varint, n <= 0")
+			return nil, fmt.Errorf("Error while reading varint, n <= 0")
 		}
 
 		cellContents = cellContents[n:]
@@ -193,7 +192,7 @@ func leafTableCells(p *Page, cellContents []byte) ([]*Cell, error) {
 		payloadHeaderSize, n := readBigEndianVarint(cellContents)
 
 		if n <= 0 {
-			return nil, errors.New("Error while reading varint, n <= 0")
+			return nil, fmt.Errorf("Error while reading varint, n <= 0")
 		}
 
 		payloadBodySize := payloadSize - payloadHeaderSize
@@ -234,7 +233,7 @@ func interiorTableCells(p *Page, cellContents []byte) ([]*Cell, error) {
 		rowId, n := readBigEndianVarint(cellContents)
 
 		if n <= 0 {
-			return nil, errors.New("Error while reading varint, n <= 0")
+			return nil, fmt.Errorf("Error while reading varint, n <= 0")
 		}
 
 		cellContents = cellContents[n:]
@@ -283,7 +282,7 @@ func decodePayload(header []byte, payload []byte, rowId int64) ([]*Record, error
 	_, n := readBigEndianVarint(header)
 
 	if n <= 0 {
-		return nil, errors.New("Error while reading varint, n <= 0")
+		return nil, fmt.Errorf("Error while reading varint, n <= 0")
 	}
 
 	header = header[n:]
@@ -298,7 +297,7 @@ func decodePayload(header []byte, payload []byte, rowId int64) ([]*Record, error
 		serialType, n := readBigEndianVarint(header)
 
 		if n <= 0 {
-			return nil, errors.New("Error while reading varint, n <= 0")
+			return nil, fmt.Errorf("Error while reading varint, n <= 0")
 		}
 
 		header = header[n:]

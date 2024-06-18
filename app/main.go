@@ -1,7 +1,6 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"github.com/xwb1989/sqlparser"
 	"log"
@@ -67,12 +66,12 @@ func indexOfColumnToRead(allSchemaRecords [][]*Record, tableName string, columnN
 		}
 
 		if indexOfColumnToRead == -1 {
-			return -1, errors.New("Column not found")
+			return -1, fmt.Errorf("Column not found")
 		}
 
 		return indexOfColumnToRead, nil
 	default:
-		return -1, errors.New("Malformed create statement")
+		return -1, fmt.Errorf("Malformed create statement")
 	}
 }
 
@@ -84,7 +83,7 @@ func aliasedSelectExpr(allSchemaRecords [][]*Record, allTablePageRecords [][]*Re
 		funcName := expr.Name.String()
 
 		if strings.ToUpper(funcName) != "COUNT" {
-			return nil, errors.New("Unsupported function")
+			return nil, fmt.Errorf("Unsupported function")
 		}
 
 		if _, ok := expr.Exprs[0].(*sqlparser.StarExpr); ok {
@@ -113,7 +112,7 @@ func aliasedSelectExpr(allSchemaRecords [][]*Record, allTablePageRecords [][]*Re
 		return data, nil
 	}
 
-	return nil, errors.New("Unsupported select expression")
+	return nil, fmt.Errorf("Unsupported select expression")
 }
 
 func getTableData(database *Database, tableRootPageNumber int) ([][]*Record, error) {
@@ -210,7 +209,7 @@ func selectExpr(database *Database, allSchemaRecords [][]*Record, stmt *sqlparse
 			allTablePageRecords = recordsToKeep
 
 		default:
-			log.Fatal(errors.New("Unsupported where expr"))
+			log.Fatal("Unsupported where expr")
 		}
 	}
 
